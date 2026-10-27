@@ -190,7 +190,7 @@ async def expire_roles():
 async def before_expire_roles():
     await bot.wait_until_ready()
 
-@bot.tree.command(name="Punition", description="Lancer un vote pour attribuer un rôle temporaire à un membre.")
+@bot.tree.command(name="punition", description="Lancer un vote pour attribuer un rôle temporaire à un membre.")
 @app_commands.describe(
     membre="La personne qui recevra le rôle si le vote réussit",
     role="Le rôle à attribuer temporairement",
