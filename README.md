@@ -1,7 +1,7 @@
 # Bot Discord — Vote pour rôle temporaire
 
 ## Fonctionnalités
-- Commande slash `/vote-role`.
+- Commande slash `/punition`.
 - Paramètres : membre cible, rôle, nombre de votes « Pour », durée du vote en minutes, durée du rôle en minutes.
 - La cible ne peut ni voter pour ni voter contre.
 - Un utilisateur ne peut voter qu'une fois par vote.
@@ -33,7 +33,7 @@ Le rôle du bot doit être placé au-dessus du rôle temporaire et au-dessus du 
 
 ## Utilisation
 Exemple :
-`/vote-role membre:@Joueur role:@RôleTemporaire votes_positifs:5 duree_vote:10 duree_role:30`
+`/punition membre:@Joueur role:@RôleTemporaire votes_positifs:5 duree_vote:10 duree_role:30`
 
 Le vote nécessite 5 votes favorables dans les 10 minutes. Si le seuil est atteint, le rôle est attribué pendant 30 minutes.
 
