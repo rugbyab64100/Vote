@@ -150,6 +150,7 @@ async def on_ready():
         expire_roles.start()
     try:
         synced = await bot.tree.sync()
+        print("Commandes synchronisées :", [cmd.name for cmd in synced])
         print(f"Connecté en tant que {bot.user}; {len(synced)} commande(s) synchronisée(s).")
     except Exception as exc:
         print(f"Échec de synchronisation des commandes : {exc}")
