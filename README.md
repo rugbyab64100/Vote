@@ -52,3 +52,6 @@ Les votes sont publiés dans `#vote-en-cours`. La personne visée ne peut pas vo
 
 
 Les messages de vote n’affichent pas l’identité de la personne qui lance la commande : ils indiquent « Quelqu’un demande… ».
+
+
+Lorsqu’une punition est appliquée, le message indique son heure de fin en heure de Paris. Si elle se termine un autre jour, la date (sans année) est également affichée.

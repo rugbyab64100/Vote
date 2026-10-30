@@ -2,6 +2,8 @@ import os
 import sqlite3
 import time
 import asyncio
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -106,8 +108,18 @@ class RoleVoteView(discord.ui.View):
                 await self.target.add_roles(self.role, reason="Seuil de votes favorables atteint")
                 expiry = int(time.time()) + self.role_seconds
                 schedule_expiration(guild.id, self.target.id, self.role.id, expiry)
+                # Afficher l'heure de fin selon le fuseau horaire français.
+                paris_tz = ZoneInfo("Europe/Paris")
+                now_local = datetime.now(paris_tz)
+                end_local = datetime.fromtimestamp(expiry, paris_tz)
+                end_time = end_local.strftime("%Hh%M")
+                if end_local.date() == now_local.date():
+                    end_label = f"jusqu'à {end_time}"
+                else:
+                    day = f"{end_local.day}er" if end_local.day == 1 else str(end_local.day)
+                    end_label = f"jusqu'au {day} {end_local.strftime('%B')} à {end_time}"
                 result = (f"✅ **Vote accepté !** La punition est appliquée à {self.target.mention} "
-                          f"pendant {self.role_seconds // 60} minute(s).")
+                          f"{end_label}.")
             else:
                 await self.target.remove_roles(self.role, reason="Vote accepté pour lever la punition")
                 with db_connect() as conn:
