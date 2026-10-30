@@ -42,11 +42,13 @@ def schedule_expiration(guild_id: int, member_id: int, role_id: int, expires_at:
 
 class RoleVoteView(discord.ui.View):
     def __init__(self, target: discord.Member, role: discord.Role,
-                 required_yes: int, vote_seconds: int, role_seconds: int):
+                 required_yes: int, vote_seconds: int, action: str,
+                 role_seconds: int = 0):
         super().__init__(timeout=vote_seconds)
         self.target = target
         self.role = role
         self.required_yes = required_yes
+        self.action = action  # "punition" or "gentil"
         self.role_seconds = role_seconds
         self.yes_voters = set()
         self.no_voters = set()
@@ -100,27 +102,30 @@ class RoleVoteView(discord.ui.View):
         self.stop()
         guild = self.target.guild
         try:
-            await self.target.add_roles(self.role, reason="Seuil de votes favorables atteint")
-            expiry = int(time.time()) + self.role_seconds
-            schedule_expiration(guild.id, self.target.id, self.role.id, expiry)
-            await self.message.edit(
-                content=(
-                    "✅ **Vote accepté !** La punition est appliquée à "
-                    f"{self.target.mention} pendant {self.role_seconds // 60} min"
-                    + (f" {self.role_seconds % 60} s" if self.role_seconds % 60 else "")
-                    + ".\n\n" + self.vote_count_text()
-                ),
-                view=None
-            )
+            if self.action == "punition":
+                await self.target.add_roles(self.role, reason="Seuil de votes favorables atteint")
+                expiry = int(time.time()) + self.role_seconds
+                schedule_expiration(guild.id, self.target.id, self.role.id, expiry)
+                result = (f"✅ **Vote accepté !** La punition est appliquée à {self.target.mention} "
+                          f"pendant {self.role_seconds // 60} minute(s).")
+            else:
+                await self.target.remove_roles(self.role, reason="Vote accepté pour lever la punition")
+                with db_connect() as conn:
+                    conn.execute(
+                        "DELETE FROM role_expirations WHERE guild_id=? AND member_id=? AND role_id=?",
+                        (guild.id, self.target.id, self.role.id)
+                    )
+                    conn.commit()
+                result = f"✅ **Vote accepté !** La punition de {self.target.mention} est levée."
+            await self.message.edit(content=result + "\n\n" + self.vote_count_text(), view=None)
         except discord.Forbidden:
             await self.message.edit(
-                content=("❌ Le vote a atteint le seuil, mais je n'ai pas la permission "
-                         "d'attribuer ce rôle. Vérifie ma permission « Gérer les rôles » "
-                         "et place mon rôle au-dessus du rôle à attribuer."),
+                content=("❌ Le vote a atteint le seuil, mais je n'ai pas la permission de modifier le rôle. "
+                         "Vérifie ma permission « Gérer les rôles » et place mon rôle au-dessus de PUNI."),
                 view=None
             )
-        except discord.HTTPException:
-            pass
+        except discord.HTTPException as exc:
+            print(f"Erreur Discord pendant l'application du résultat du vote : {exc}")
 
     async def on_timeout(self):
         if self.finished:
@@ -188,104 +193,117 @@ async def expire_roles():
 async def before_expire_roles():
     await bot.wait_until_ready()
 
-@bot.tree.command(name="punition", description="Lancer un vote pour appliquer une punition temporaire à un membre.")
-@app_commands.describe(
-    membre="La personne qui recevra la punition si le vote réussit",
-    votes_positifs="Nombre de votes « Pour » requis",
-    duree_vote="Durée du vote en minutes (1 à 1440)",
-    duree_role="Durée de la punition en minutes (1 à 43200)"
-)
-@app_commands.guild_only()
-async def vote_role(
-    interaction: discord.Interaction,
-    membre: discord.Member,
-    votes_positifs: app_commands.Range[int, 1, 1000],
-    duree_vote: app_commands.Range[int, 1, 1440],
-    duree_role: app_commands.Range[int, 1, 43200],
-):
-    if membre.id == interaction.user.id:
-        await interaction.response.send_message(
-            "Tu ne peux pas lancer un vote pour t'attribuer toi-même ce rôle.",
-            ephemeral=True
-        )
-        return
-    if membre.bot:
-        await interaction.response.send_message(
-            "Tu ne peux pas lancer ce vote pour un bot.", ephemeral=True
-        )
-        return
+def get_puni_role(guild: discord.Guild):
+    return discord.utils.get(guild.roles, name="PUNI")
+
+
+def get_vote_channel(guild: discord.Guild):
+    return discord.utils.find(
+        lambda ch: ch.name.lower().replace("-", " ").replace("_", " ") == "vote en cours",
+        guild.text_channels
+    )
+
+
+async def check_vote_setup(interaction: discord.Interaction, membre: discord.Member):
     if interaction.guild is None or not isinstance(interaction.user, discord.Member):
         await interaction.response.send_message("Cette commande doit être utilisée sur un serveur.", ephemeral=True)
-        return
-    role = discord.utils.get(interaction.guild.roles, name="PUNI")
-    if role is None:
-        await interaction.response.send_message(
-            "Je ne trouve pas le rôle **PUNI** sur ce serveur. Vérifie son nom exact.",
-            ephemeral=True
-        )
-        return
-    if role.is_default() or role.managed:
-        await interaction.response.send_message(
-            "Le rôle **PUNI** ne peut pas être attribué par cette commande.", ephemeral=True
-        )
-        return
-
-    channel = discord.utils.find(
-        lambda ch: ch.name.lower().replace("-", " ").replace("_", " ") == "vote en cours",
-        interaction.guild.text_channels
-    )
+        return None
+    if membre.id == interaction.user.id:
+        await interaction.response.send_message("Tu ne peux pas lancer un vote sur toi-même.", ephemeral=True)
+        return None
+    if membre.bot:
+        await interaction.response.send_message("Tu ne peux pas lancer un vote sur un bot.", ephemeral=True)
+        return None
+    role = get_puni_role(interaction.guild)
+    if role is None or role.is_default() or role.managed:
+        await interaction.response.send_message("Je ne trouve pas de rôle **PUNI** attribuable sur ce serveur.", ephemeral=True)
+        return None
+    channel = get_vote_channel(interaction.guild)
     if channel is None:
-        await interaction.response.send_message(
-            "Je ne trouve pas le salon **#vote-en-cours** (ou **#vote en cours**). Crée-le puis réessaie.",
-            ephemeral=True
-        )
-        return
-
+        await interaction.response.send_message("Je ne trouve pas le salon **#vote-en-cours**. Crée-le puis réessaie.", ephemeral=True)
+        return None
     bot_member = interaction.guild.me
     if bot_member is None or not bot_member.guild_permissions.manage_roles:
-        await interaction.response.send_message(
-            "Je n'ai pas la permission « Gérer les rôles ». Demande à un administrateur de me l'accorder.",
-            ephemeral=True
-        )
-        return
+        await interaction.response.send_message("Je n'ai pas la permission « Gérer les rôles ».", ephemeral=True)
+        return None
     if role >= bot_member.top_role:
-        await interaction.response.send_message(
-            "Je ne peux pas gérer ce rôle : place mon rôle au-dessus de celui-ci dans Paramètres du serveur → Rôles.",
-            ephemeral=True
-        )
-        return
+        await interaction.response.send_message("Place le rôle du bot au-dessus de **PUNI** dans les paramètres des rôles.", ephemeral=True)
+        return None
     if membre.top_role >= bot_member.top_role:
-        await interaction.response.send_message(
-            "Je ne peux pas attribuer de rôle à ce membre car son rôle le plus élevé est au-dessus du mien ou au même niveau.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("Je ne peux pas modifier les rôles de ce membre : son rôle le plus élevé est au-dessus du mien ou au même niveau.", ephemeral=True)
+        return None
+    return role, channel
+
+
+async def publish_vote(interaction: discord.Interaction, membre: discord.Member,
+                       votes_positifs: int, duree_vote: int, action: str,
+                       duree_role: int = 0):
+    setup = await check_vote_setup(interaction, membre)
+    if setup is None:
+        return
+    role, channel = setup
+    if action == "punition" and role in membre.roles:
+        await interaction.response.send_message(f"{membre.mention} possède déjà le rôle **PUNI**.", ephemeral=True)
+        return
+    if action == "gentil" and role not in membre.roles:
+        await interaction.response.send_message(f"{membre.mention} ne possède pas le rôle **PUNI**.", ephemeral=True)
         return
 
     view = RoleVoteView(
-        target=membre,
-        role=role,
-        required_yes=votes_positifs,
-        vote_seconds=duree_vote * 60,
-        role_seconds=duree_role * 60
+        target=membre, role=role, required_yes=votes_positifs,
+        vote_seconds=duree_vote * 60, action=action, role_seconds=duree_role * 60
     )
+    title = "Vote de punition" if action == "punition" else "Vote pour lever la punition"
+    request = "demande une punition pour" if action == "punition" else "demande à lever la punition de"
+    details = f"**Durée de la punition si acceptée :** {duree_role} minute(s)\n" if action == "punition" else ""
     await interaction.response.defer(ephemeral=True, thinking=True)
     try:
         message = await channel.send(
-            f"🗳️ **Vote de punition**\n"
-            f"{interaction.user.mention} demande une punition pour {membre.mention}.\n\n"
+            f"🗳️ **{title}**\n"
+            f"{interaction.user.mention} {request} {membre.mention}.\n\n"
             f"**Seuil requis :** {votes_positifs} vote(s) « Pour »\n"
             f"**Durée du vote :** {duree_vote} minute(s)\n"
-            f"**Durée de la punition si acceptée :** {duree_role} minute(s)\n\n"
-            + view.vote_count_text(),
+            f"{details}\n" + view.vote_count_text(),
             view=view
         )
         view.message = message
         await interaction.followup.send(f"Vote publié dans {channel.mention}.", ephemeral=True)
     except discord.Forbidden:
-        await interaction.followup.send(
-            f"Je n'ai pas la permission d'envoyer un message dans {channel.mention}.",
-            ephemeral=True
-        )
+        await interaction.followup.send(f"Je n'ai pas la permission d'envoyer un message dans {channel.mention}.", ephemeral=True)
+
+
+@bot.tree.command(name="punition", description="Lancer un vote pour appliquer une punition temporaire.")
+@app_commands.describe(
+    membre="La personne qui recevra la punition si le vote réussit",
+    votes_positifs="Nombre de votes « Pour » requis (minimum 3)",
+    duree_vote="Durée du vote en minutes (1 à 5)",
+    duree_role="Durée de la punition en minutes (1 à 120)"
+)
+@app_commands.guild_only()
+async def vote_role(
+    interaction: discord.Interaction,
+    membre: discord.Member,
+    votes_positifs: app_commands.Range[int, 3, 1000],
+    duree_vote: app_commands.Range[int, 1, 5],
+    duree_role: app_commands.Range[int, 1, 120],
+):
+    await publish_vote(interaction, membre, votes_positifs, duree_vote, "punition", duree_role)
+
+
+@bot.tree.command(name="gentil", description="Lancer un vote pour lever la punition d'un membre.")
+@app_commands.describe(
+    membre="La personne dont la punition pourrait être levée",
+    votes_positifs="Nombre de votes « Pour » requis (minimum 3)",
+    duree_vote="Durée du vote en minutes (1 à 5)"
+)
+@app_commands.guild_only()
+async def vote_gentil(
+    interaction: discord.Interaction,
+    membre: discord.Member,
+    votes_positifs: app_commands.Range[int, 3, 1000],
+    duree_vote: app_commands.Range[int, 1, 5],
+):
+    await publish_vote(interaction, membre, votes_positifs, duree_vote, "gentil")
 
 if not TOKEN:
     raise RuntimeError("La variable d'environnement DISCORD_TOKEN est manquante.")

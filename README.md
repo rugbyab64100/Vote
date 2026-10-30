@@ -41,3 +41,11 @@ Le vote nécessite 5 votes favorables dans les 10 minutes. Si le seuil est attei
 - Les commandes slash peuvent prendre un court délai pour apparaître après le premier démarrage.
 - La vue d'un vote en cours n'est pas restaurée si le processus redémarre pendant ce vote. Les échéances des rôles déjà attribués sont, elles, conservées dans SQLite si le stockage utilisé est persistant.
 - Un vote terminé sans atteindre le seuil requis ne donne pas le rôle.
+
+
+## Commandes actuelles
+
+- `/punition` : membre, nombre de votes « Pour » (minimum 3), durée du vote (1 à 5 minutes), durée de la punition (1 à 120 minutes).
+- `/gentil` : membre, nombre de votes « Pour » (minimum 3), durée du vote (1 à 5 minutes). Si le vote réussit, le rôle `PUNI` est retiré immédiatement et son expiration programmée est annulée.
+
+Les votes sont publiés dans `#vote-en-cours`. La personne visée ne peut pas voter.
