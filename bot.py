@@ -150,7 +150,6 @@ async def on_ready():
         expire_roles.start()
     try:
         synced = await bot.tree.sync()
-        print("Commandes synchronisées :", [cmd.name for cmd in synced])
         print(f"Connecté en tant que {bot.user}; {len(synced)} commande(s) synchronisée(s).")
     except Exception as exc:
         print(f"Échec de synchronisation des commandes : {exc}")
@@ -255,13 +254,13 @@ async def publish_vote(interaction: discord.Interaction, membre: discord.Member,
         vote_seconds=duree_vote * 60, action=action, role_seconds=duree_role * 60
     )
     title = "Vote de punition" if action == "punition" else "Vote pour lever la punition"
-    request = "demande une punition pour" if action == "punition" else "demande à lever la punition de"
+    request = "une punition pour" if action == "punition" else "à lever la punition de"
     details = f"**Durée de la punition si acceptée :** {duree_role} minute(s)\n" if action == "punition" else ""
     await interaction.response.defer(ephemeral=True, thinking=True)
     try:
         message = await channel.send(
             f"🗳️ **{title}**\n"
-            f"{interaction.user.mention} {request} {membre.mention}.\n\n"
+            f"Quelqu’un demande {request} {membre.mention}.\n\n"
             f"**Seuil requis :** {votes_positifs} vote(s) « Pour »\n"
             f"**Durée du vote :** {duree_vote} minute(s)\n"
             f"{details}\n" + view.vote_count_text(),

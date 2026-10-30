@@ -49,3 +49,6 @@ Le vote nécessite 5 votes favorables dans les 10 minutes. Si le seuil est attei
 - `/gentil` : membre, nombre de votes « Pour » (minimum 3), durée du vote (1 à 5 minutes). Si le vote réussit, le rôle `PUNI` est retiré immédiatement et son expiration programmée est annulée.
 
 Les votes sont publiés dans `#vote-en-cours`. La personne visée ne peut pas voter.
+
+
+Les messages de vote n’affichent pas l’identité de la personne qui lance la commande : ils indiquent « Quelqu’un demande… ».
